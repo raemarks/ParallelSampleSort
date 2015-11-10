@@ -5,6 +5,7 @@
 #include <string.h>
 #include "random.h"
 #include "matrix.h"
+#include "mpi_constants.h"
 
 /* For parallel prefix */
 int64_t local_product[4];
@@ -170,8 +171,9 @@ generate_random_series(int n, int **series_out)
 	*series_out = (int *) malloc(sizeof(int)*n/p);
 	series = *series_out;
 
-	if (rank == 0)
+	if (rank == 0) {
 		series[0] = seed;
+	}
 	else {
 		mult_vector_matrix(init_vector, local_product, result_vector);
 		series[0] = result_vector[0] % P;

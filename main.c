@@ -26,26 +26,126 @@ void test_partition();
 
 int main(int argc, char *argv[])
 {
-	P=9973;
-	B=19;
-	A=7;
-	seed=3557;
-#if 0
 	struct timeval t1, t2;
-	int *result, i, it, err, iterations = 10;
-	double myruntime, *runtimes, iteration_sum;
-	double sum = 0.0;
+
+	int i, it, err, iterations = 3;
+	double myruntime, *runtimes, iteration_sum = 0.0;
+	double *commruntimes, iteration_commsum = 0.0;
+	double comp, comm;
+	double sum = 0.0, commsum = 0.0;
 	FILE *outfile;
-	char *filename;
-#endif
+	const char *filename;
+	int *arr = NULL, *sorted = NULL, sorted_size;
 
 	MPI_Init(&argc,&argv);
 	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
 	MPI_Comm_size(MPI_COMM_WORLD,&p);
 
 	assert(p>=1);
+	assert(argc>=3);
 
-	test_sample_sort();
+	P=9973;
+	B=19;
+	A=7;
+	seed=3557;
+
+	n = atoi(argv[1]);
+	filename = argv[2];
+
+
+	/* Need more iterations for accuracy on smaller inputs */
+	if (n < 32768)
+		iterations = 10;
+	/* We don't want testing to take forever. */
+	if (n > 8388608)
+		iterations = 1;
+
+	runtimes = (double *) malloc(p*sizeof(double));
+	commruntimes = (double *) malloc(p*sizeof(double));
+
+	for (it = 0; it < iterations; it++) {
+		err = generate_random_series(n, &arr);
+		if (err) {
+			printf("Error generating random series, quitting\n");
+			return (1);
+		}
+
+		gettimeofday(&t1, NULL);
+		err = sample_sort(n, arr, &sorted, &sorted_size);
+		gettimeofday(&t2, NULL);
+
+		free(arr);
+		free(sorted);
+
+		if (err) {
+			printf("Error sorting, quitting\n");
+			return (1);
+		}
+		myruntime = (t2.tv_sec-t1.tv_sec)*1000 +
+		    ((double) t2.tv_usec-t1.tv_usec)/1000;
+
+		err = MPI_Gather(&myruntime, 1, MPI_DOUBLE, runtimes, 1, MPI_DOUBLE, 0,
+		    MPI_COMM_WORLD);
+		err = MPI_Gather(&comm_time, 1, MPI_DOUBLE, commruntimes, 1, MPI_DOUBLE, 0,
+		    MPI_COMM_WORLD);
+
+		if (err) {
+			printf("Error gathering info. Exiting\n");
+			exit(5);
+		}
+
+		if (rank == 0) {
+			for (i = 0; i < p; i++) {
+				sum += runtimes[i];
+			}
+			sum /= p;
+			for (i = 0; i < p; i++) {
+				commsum += commruntimes[i];
+			}
+			commsum /= p;
+			comm = 100*commsum / sum;
+			comp = 100 - comm;
+			printf("p = %d, n = %d, average = %lf ms = %lf min, %%comm: %lf %%comp: %lf\n",
+			    p,
+			    n,
+			    sum, /* Average */
+			    sum/(1000*60),
+			    comm,
+			    comp
+			    );
+		}
+
+		iteration_sum += sum;
+		iteration_commsum += commsum;
+	}
+	if (rank == 0) {
+		outfile = fopen(filename, "a+b");
+		iteration_sum /= iterations;
+		iteration_commsum /= iterations;
+		comm = 100*iteration_commsum / iteration_sum;
+		comp = 100 - comm;
+
+		printf("FINAL: p = %d, n = %d, average = %lf ms = %lf min, %%comm: %lf %%comp: %lf\n",
+		    p,
+		    n,
+		    iteration_sum, /* Average */
+		    iteration_sum/(1000*60),
+		    comm,
+		    comp
+		    );
+		fprintf(outfile, "%d, %d, %d, %lf, %lf, %lf\n",
+		    rank,
+		    p,
+		    n,
+		    iteration_sum, /* Average */
+		    comm,
+		    comp
+		    );
+
+		fclose(outfile);
+	}
+
+	//test_sample_sort();
 	//test_prefix_operation();
 	//test_partition();
 

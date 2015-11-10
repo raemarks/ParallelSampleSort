@@ -3,10 +3,11 @@
 
 extern int p;
 extern int rank;
-extern int P;
-extern int B;
-extern int A;
-extern int seed;
+extern int64_t P;
+extern int64_t B;
+extern int64_t A;
+extern int64_t seed;
 extern int n;
+extern double comm_time;
 
 #endif

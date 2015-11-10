@@ -12,6 +12,8 @@
 #include "mpi_constants.h"
 #include "sample_sort.h"
 
+double comm_time;
+
 int compare (const void * a, const void * b)
 {
 	const int *ia = (const int *)a; // casting pointer types
@@ -78,11 +80,12 @@ sample_sort(int n, int *to_sort, int **sorted, int *sorted_size)
 	    *gpivots = NULL, n_gpivots;
 	int *sdispls = NULL, *sendcounts = NULL, *rdispls = NULL, *recvcounts,
 	    *recvbuf = NULL, rsize;
+	struct timeval t1, t2;
+
+	comm_time = 0.0;
 
 	/* Local sort */
 	qsort(to_sort, n/p, sizeof(int), compare);
-	sleep(rank);
-
 
 	/* Pick local pivots */
 	n_lpivots = p - 1;
@@ -93,11 +96,15 @@ sample_sort(int n, int *to_sort, int **sorted, int *sorted_size)
 	n_all_lpivots = n_lpivots * p;
 	all_lpivots = (int *) malloc(sizeof(int)*n_all_lpivots);
 
+	gettimeofday(&t1, NULL);
 	err = MPI_Allgather(lpivots, n_lpivots, MPI_INT, all_lpivots,
 	    n_lpivots, MPI_INT, MPI_COMM_WORLD);
+	gettimeofday(&t2, NULL);
 	if (err)
 		goto out;
 
+	comm_time += (t2.tv_sec-t1.tv_sec)*1000 +
+	    ((double) t2.tv_usec-t1.tv_usec)/1000;
 
 	/* Sort local pivots from all processes */
 	qsort(all_lpivots, n_all_lpivots, sizeof(int), compare);
@@ -108,8 +115,8 @@ sample_sort(int n, int *to_sort, int **sorted, int *sorted_size)
 	gpivots = pick_pivots(all_lpivots, n_all_lpivots);
 
 	/* Partition with global pivots */
+	gettimeofday(&t1, NULL);
 	partition(to_sort, n/p, gpivots, n_gpivots, &sdispls, &sendcounts);
-
 
 	/* Tell other processes how much data to expect */
 	rdispls = (int *) malloc(sizeof(int)*p);
@@ -133,13 +140,16 @@ sample_sort(int n, int *to_sort, int **sorted, int *sorted_size)
 	recvbuf = (int *) malloc(sizeof(int)*rsize);
 	err = MPI_Alltoallv(to_sort, sendcounts, sdispls, MPI_INT, recvbuf,
 	    recvcounts, rdispls, MPI_INT, MPI_COMM_WORLD);
+	gettimeofday(&t2, NULL);
 	if (err)
 		goto out;
+
+	comm_time += (t2.tv_sec-t1.tv_sec)*1000 +
+	    ((double) t2.tv_usec-t1.tv_usec)/1000;
 
 
 	/* Final local sort */
 	qsort(recvbuf, rsize, sizeof(int), compare);
-	printf("rank: %d rsize: %d\n", rank, rsize);
 
 	*sorted = recvbuf;
 	*sorted_size = rsize;
@@ -168,7 +178,7 @@ out:
 int
 run_sample_sort(int **sorted, int *sorted_size)
 {
-	int err, i;
+	int err;
 	int *arr = NULL;
 
 	err = generate_random_series(n, &arr);
